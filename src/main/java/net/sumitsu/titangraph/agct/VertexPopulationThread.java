@@ -16,7 +16,7 @@ public class VertexPopulationThread implements Runnable {
     final RecordIdentifier ri;
 
     private void populateGraph() {
-        TitanGraphQuery tgQuery;
+        TitanGraphQuery<?> tgQuery;
         Iterable<Vertex> matches;
         Vertex v;
         Edge e;
