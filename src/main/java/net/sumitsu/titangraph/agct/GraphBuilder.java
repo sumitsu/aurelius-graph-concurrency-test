@@ -41,12 +41,14 @@ public class GraphBuilder {
     
     public static final String INDEX_ELASTICSEARCH = "elasticsearch";
     
-    public static final String VERTEXPROP_TYPE              = "vertexType";
-    public static final String INDEX_VERTEXPROP_TYPE        = "index." + VERTEXPROP_TYPE;
-    public static final String VERTEXPROP_PRIMARYID         = "primaryID";
-    public static final String INDEX_VERTEXPROP_PRIMARYID   = "index." + VERTEXPROP_PRIMARYID;
-    public static final String VERTEXPROP_SECONDARYID       = "secondaryID";
-    public static final String INDEX_VERTEXPROP_SECONDARYID = "index." + VERTEXPROP_SECONDARYID;
+    public static final String VERTEXPROP_TYPE                    = "vertexType";
+    public static final String INDEX_VERTEXPROP_TYPE              = "index." + VERTEXPROP_TYPE;
+    public static final String VERTEXPROP_PRIMARYID               = "primaryID";
+    public static final String INDEX_VERTEXPROP_PRIMARYID         = "index." + VERTEXPROP_PRIMARYID;
+    public static final String UNIQUEINDEX_VERTEXPROP_PRIMARYID   = "uniqueindex." + VERTEXPROP_PRIMARYID;
+    public static final String VERTEXPROP_SECONDARYID             = "secondaryID";
+    public static final String INDEX_VERTEXPROP_SECONDARYID       = "index." + VERTEXPROP_SECONDARYID;
+    public static final String UNIQUEINDEX_VERTEXPROP_SECONDARYID = "uniqueindex." + VERTEXPROP_SECONDARYID;
     
     public static final String EDGEPROP_TYPE       = "edgeType";
     public static final String INDEX_EDGEPROP_TYPE = "index." + EDGEPROP_TYPE;
@@ -79,6 +81,8 @@ public class GraphBuilder {
         final TitanGraphIndex indexPropKeyEdgeType;
         final TitanGraphIndex indexPropKeyPrimaryID;
         final TitanGraphIndex indexPropKeySecondaryID;
+        final TitanGraphIndex indexPropKeyPrimaryIDUnique;
+        final TitanGraphIndex indexPropKeySecondaryIDUnique;
         
         methodName = "startGraph";
         if (log.isDebugEnabled()) { log.debug(">>> " + methodName); }
@@ -120,12 +124,13 @@ public class GraphBuilder {
         }
         
         // configure Elasticsearch index
-        graphConfig.set(GraphDatabaseConfiguration.INDEX_BACKEND, INDEX_ELASTICSEARCH);
-        graphConfig.set(GraphDatabaseConfiguration.INDEX_HOSTS, new String[]{envElasticsearchHost});
-        graphConfig.set(GraphDatabaseConfiguration.INDEX_NAME, envIndexName);
-        graphConfig.set(ElasticSearchIndex.CLUSTER_NAME, envElasticsearchClusterName);
-        graphConfig.set(ElasticSearchIndex.LOCAL_MODE, false);
-        graphConfig.set(ElasticSearchIndex.CLIENT_ONLY, true);
+        
+        graphConfig.set(GraphDatabaseConfiguration.INDEX_BACKEND, INDEX_ELASTICSEARCH, envIndexName);
+        graphConfig.set(GraphDatabaseConfiguration.INDEX_HOSTS, new String[]{envElasticsearchHost}, envIndexName);
+        graphConfig.set(GraphDatabaseConfiguration.INDEX_NAME, envIndexName, envIndexName);
+        graphConfig.set(ElasticSearchIndex.CLUSTER_NAME, envElasticsearchClusterName, envIndexName);
+        graphConfig.set(ElasticSearchIndex.LOCAL_MODE, false, envIndexName);
+        graphConfig.set(ElasticSearchIndex.CLIENT_ONLY, true, envIndexName);
         
         graph = TitanFactory.open(graphConfig);
         graphMgt = graph.getManagementSystem();
@@ -135,7 +140,7 @@ public class GraphBuilder {
         /*
          * KEY + INDEX (string): vertexType (vertex property)
          */
-        maker = graph.makePropertyKey(VERTEXPROP_TYPE);
+        maker = graphMgt.makePropertyKey(VERTEXPROP_TYPE);
         maker.dataType(String.class);
         propKeyVertexType = maker.make();
         
@@ -144,6 +149,7 @@ public class GraphBuilder {
                 .buildIndex(INDEX_VERTEXPROP_TYPE, Vertex.class)
                 .indexKey(propKeyVertexType,
                           Parameter.of(ParameterType.MAPPING.toString(), Mapping.STRING))
+                //.indexOnly(vl)
                 .buildMixedIndex(envIndexName);
 
         if (log.isDebugEnabled()) {
@@ -155,7 +161,7 @@ public class GraphBuilder {
         /*
          * KEY + INDEX (string): edgeType (edge property)
          */
-        maker = graph.makePropertyKey(EDGEPROP_TYPE);
+        maker = graphMgt.makePropertyKey(EDGEPROP_TYPE);
         maker.dataType(String.class);
         propKeyEdgeType = maker.make();
         
@@ -173,9 +179,9 @@ public class GraphBuilder {
         }
         
         /*
-         * KEY + UNIQUE INDEX (string): primaryID (vertex property)
+         * KEY + INDEX (string) + UNIQUE CONSTRAINT (string): primaryID (vertex property)
          */
-        maker = graph.makePropertyKey(VERTEXPROP_PRIMARYID);
+        maker = graphMgt.makePropertyKey(VERTEXPROP_PRIMARYID);
         maker.dataType(String.class);
         propKeyPrimaryID = maker.make();
         
@@ -184,19 +190,29 @@ public class GraphBuilder {
                 .buildIndex(INDEX_VERTEXPROP_PRIMARYID, Vertex.class)
                 .indexKey(propKeyPrimaryID,
                           Parameter.of(ParameterType.MAPPING.toString(), Mapping.STRING))
-                .unique()
                 .buildMixedIndex(envIndexName);
-
         if (log.isDebugEnabled()) {
-            log.debug("[" + methodName + "] unique key created: "
+            log.debug("[" + methodName + "] index created: "
                       + VERTEXPROP_PRIMARYID
                       + "(key=" + propKeyPrimaryID + ",index=" + indexPropKeyPrimaryID + ")");
         }
         
+        indexPropKeyPrimaryIDUnique =
+            graphMgt
+                .buildIndex(UNIQUEINDEX_VERTEXPROP_PRIMARYID, Vertex.class)
+                .indexKey(propKeyPrimaryID)
+                .unique()
+                .buildCompositeIndex();
+        if (log.isDebugEnabled()) {
+            log.debug("[" + methodName + "] unique constraint created: "
+                      + VERTEXPROP_PRIMARYID
+                      + "(key=" + propKeyPrimaryID + ",index=" + indexPropKeyPrimaryIDUnique + ")");
+        }
+        
         /*
-         * KEY + UNIQUE INDEX (string): secondaryID (vertex property)
+         * KEY + INDEX (string) + UNIQUE CONSTRAINT: secondaryID (vertex property)
          */
-        maker = graph.makePropertyKey(VERTEXPROP_SECONDARYID);
+        maker = graphMgt.makePropertyKey(VERTEXPROP_SECONDARYID);
         maker.dataType(String.class);
         propKeySecondaryID = maker.make();
         
@@ -205,13 +221,23 @@ public class GraphBuilder {
                 .buildIndex(INDEX_VERTEXPROP_SECONDARYID, Vertex.class)
                 .indexKey(propKeySecondaryID,
                           Parameter.of(ParameterType.MAPPING.toString(), Mapping.STRING))
-                .unique()
                 .buildMixedIndex(envIndexName);
-
         if (log.isDebugEnabled()) {
-            log.debug("[" + methodName + "] unique key created: "
+            log.debug("[" + methodName + "] index created: "
                       + VERTEXPROP_SECONDARYID
                       + "(key=" + propKeySecondaryID + ",index=" + indexPropKeySecondaryID + ")");
+        }
+        
+        indexPropKeySecondaryIDUnique =
+            graphMgt
+                .buildIndex(UNIQUEINDEX_VERTEXPROP_SECONDARYID, Vertex.class)
+                .indexKey(propKeySecondaryID)
+                .unique()
+                .buildCompositeIndex();
+        if (log.isDebugEnabled()) {
+            log.debug("[" + methodName + "] unique constraint created: "
+                      + VERTEXPROP_SECONDARYID
+                      + "(key=" + propKeySecondaryID + ",index=" + indexPropKeySecondaryIDUnique + ")");
         }
         
         return graph;
